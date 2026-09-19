@@ -353,7 +353,21 @@ svg{display:block}
 
 /* ═══ 결재 데스크 ═══════════════════════════════════ */
 .deskpanel{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
-.queue{display:flex;align-items:center;gap:10px;padding:9px 13px}
+/* 오늘 날짜 — 작성일 대조 기준 */
+.queue{display:flex;align-items:center;gap:9px;padding:8px 11px}
+.today{display:flex;align-items:center;gap:8px;flex:1;min-width:0;padding:4px 10px 4px 4px;
+  border-radius:12px;
+  background:linear-gradient(180deg,var(--gold-soft),color-mix(in srgb,var(--gold-soft) 40%,var(--surface)));
+  border:1.5px solid var(--gold);box-shadow:inset 0 1px 0 var(--hi)}
+.today-ico{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;
+  background:linear-gradient(160deg,#F7D26A,var(--gold-2));color:#4A3208;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 2px 0 var(--gold-2)}
+.today-body{display:flex;flex-direction:column;gap:0;min-width:0}
+.today-lbl{font-size:9.5px;color:var(--ink-2);letter-spacing:.1em;line-height:1.2}
+.today-val{font-family:"Roboto Mono",monospace;font-size:15px;font-weight:700;line-height:1.2;
+  letter-spacing:.01em;white-space:nowrap}
+.today-val .dow{font-size:12px;color:var(--gold-2);margin-left:3px}
+.qtray{display:flex;align-items:center;gap:7px;flex:none}
 .queue-ico{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;
   background:linear-gradient(160deg,var(--gold-soft),color-mix(in srgb,var(--gold) 30%,var(--surface)));
   border:1.5px solid var(--gold);color:var(--gold-2)}
@@ -416,6 +430,8 @@ svg{display:block}
 .field-v{font-size:14.5px;font-weight:700;word-break:break-all;display:flex;align-items:center;
   gap:7px;flex-wrap:wrap}
 .field-v.mono{font-family:"Roboto Mono",monospace;font-size:13.5px;letter-spacing:.01em}
+.field.datefield .field-k{color:#6E7568;font-weight:700}
+.field.datefield .field-v{font-size:14.5px}
 .field-v .empty-sign{color:#B3AA94;font-weight:400;font-style:italic}
 .flag{font-family:"Noto Sans KR",sans-serif;font-size:9.5px;font-weight:700;padding:2px 8px;
   border-radius:99px;white-space:nowrap;letter-spacing:.02em}
@@ -676,7 +692,7 @@ svg{display:block}
       <span class="clock-time" id="timeTxt">09:00</span>
       <span class="clock-track"><i id="clockBar"></i></span>
     </div>
-    <button class="ibtn" id="pauseBtn" title="일시정지 (P)" aria-pressed="false" aria-label="일시정지">
+    <button class="ibtn" id="pauseBtn" title="일시정지 · 메뉴 (P)" aria-pressed="false" aria-label="일시정지">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" id="pauseIco">
         <rect x="6.5" y="5" width="4.2" height="14" rx="1.6"/><rect x="13.3" y="5" width="4.2" height="14" rx="1.6"/></svg>
     </button>
@@ -767,12 +783,23 @@ svg{display:block}
 
     <section class="deskpanel">
       <div class="queue panel">
-        <span class="queue-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3.5 13.5h4l1.4 2.6h6.2l1.4-2.6h4"/><path d="M3.5 13.5l3-8h11l3 8v5h-17z"/></svg></span>
-        <span class="queue-title">대기 서류</span>
-        <span class="queue-pips" id="queuePips"></span>
-        <span class="mono" id="queueNum" style="font-weight:700">0/5</span>
+        <span class="today" title="서류의 작성일이 이 날짜와 다르면 반려입니다">
+          <span class="today-ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.3" stroke-linecap="round">
+            <rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/>
+            <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg></span>
+          <span class="today-body">
+            <span class="today-lbl">오늘 날짜</span>
+            <span class="today-val" id="todayTxt">2026-03-02</span>
+          </span>
+        </span>
+        <span class="qtray" title="대기 서류">
+          <span class="queue-ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.5 13.5h4l1.4 2.6h6.2l1.4-2.6h4"/><path d="M3.5 13.5l3-8h11l3 8v5h-17z"/></svg></span>
+          <span class="queue-pips" id="queuePips"></span>
+          <span class="mono" id="queueNum" style="font-weight:700">0/5</span>
+        </span>
       </div>
 
       <div class="clipboard">
@@ -924,6 +951,8 @@ const unlockedRules = ()=>RULE_ORDER.filter(r=>RULES[r].day<=S.day);
 const unlockedDocs  = ()=>Object.keys(DOCS).filter(d=>DOCS[d].day<=S.day);
 function gameDate(d=S.day){ const t=new Date(BASE_DATE); t.setDate(t.getDate()+(d-1)); return t; }
 const fmtDate = t=>`${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+const DOW = ["일","월","화","수","목","금","토"];
+const fmtDow = t=>DOW[t.getDay()];
 const won = n=>"₩"+Math.round(n).toLocaleString("ko-KR");
 function rankName(){
   const sc=S.officeLv*3+S.emps.length+S.computerLv; let r=RANK_TIERS[0].name;
@@ -1605,7 +1634,7 @@ function drawScene(){
     ctx.fillText("일시정지", V.w/2, V.h/2);
     ctx.font=`${Math.round(12*Math.max(.8,V.s))}px "Noto Sans KR", sans-serif`;
     ctx.fillStyle=DARK?"#9FB1A9":"#66756D";
-    ctx.fillText("천천히 서류를 확인하세요 · P 키로 계속", V.w/2, V.h/2+26);
+    ctx.fillText("P 키 또는 ⏸ 버튼으로 메뉴 열기", V.w/2, V.h/2+26);
   }
 }
 let lastFit=0, lastRoom="";
@@ -1823,7 +1852,8 @@ function renderPaper(){
   paperEl.className="paper";
   const rows=d.fields.map(f=>{
     const flag=f.rule?d.flags[f.rule]:null;
-    const cls=flag==="a"?" alerted":flag==="q"?" marked":"";
+    let cls=flag==="a"?" alerted":flag==="q"?" marked":"";
+    if(f.rule==="date") cls+=" datefield";
     const badge=flag==="a"?'<span class="flag a">검출</span>'
                :flag==="q"?'<span class="flag q">확인</span>':"";
     const val=f.v===null?'<span class="empty-sign">미기재</span>':esc(f.v);
@@ -2075,7 +2105,7 @@ function renderRules(){
         stroke-width="2.3" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/>
         <path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"/></svg></span>
       <div><small>오늘 날짜 — 작성일이 이 날짜와 다르면 반려</small>
-      <b class="mono">${fmtDate(gameDate())}</b></div>
+      <b class="mono">${fmtDate(gameDate())} (${fmtDow(gameDate())})</b></div>
     </div>
     <div class="sec-label">검토 규정 ${un.length}/${RULE_ORDER.length}</div>
     <div class="rule-list">${RULE_ORDER.map(r=>{
@@ -2181,12 +2211,18 @@ document.getElementById("reasonChips").addEventListener("click",ev=>{
   SFX.chip(); renderReasons();
 });
 function refreshRoomChip(){ document.getElementById("roomName").textContent=room().name; }
+function refreshToday(){
+  const t=gameDate();
+  document.getElementById("todayTxt").innerHTML=
+    `${fmtDate(t)}<span class="dow">(${fmtDow(t)})</span>`;
+}
 function update(){
   document.getElementById("moneyTxt").textContent=won(S.money);
   document.getElementById("repTxt").textContent=Math.round(S.rep);
   document.getElementById("dayTxt").textContent=S.day+"일차";
   document.getElementById("empTxt").textContent=`${S.emps.length}/${S.desks}`;
   document.getElementById("rankTxt").textContent=rankName();
+  refreshToday();
   const mb=document.getElementById("moneyBar");
   mb.style.width=Math.max(4,Math.min(100,S.money/1200))+"%";
   mb.style.background=S.money<1500?"linear-gradient(90deg,var(--stamp-2),var(--stamp))"
@@ -2205,7 +2241,11 @@ function update(){
 document.addEventListener("keydown",e=>{
   if(e.target.matches("input,textarea")) return;
   const k=e.key.toLowerCase();
-  if(!modalBg.hidden){ if(k==="enter"){ e.preventDefault(); const b=document.getElementById("mBtn"); if(b) b.click(); } return; }
+  if(!modalBg.hidden){
+    if(pauseMenu&&(k==="escape"||k==="p")){ e.preventDefault(); closePause(); return; }
+    if(k==="enter"){ e.preventDefault(); const b=document.getElementById("mBtn"); if(b) b.click(); }
+    return;
+  }
   if(k==="a"){ e.preventDefault(); if(!btnA.disabled) decide(true); }
   else if(k==="d"||k==="r"){ e.preventDefault(); if(!btnR.disabled) decide(false); }
   else if(k==="p") togglePause();
@@ -2217,15 +2257,63 @@ document.addEventListener("keydown",e=>{
     if(rs[i]){ S.pickedReason=S.pickedReason===rs[i]?null:rs[i]; renderReasons(); }
   }
 });
-function togglePause(){
-  if(S.phase!=="work") return;
-  S.paused=!S.paused;
+let pauseMenu=false;
+function syncPauseBtn(){
   const b=document.getElementById("pauseBtn");
   b.setAttribute("aria-pressed",S.paused);
   b.querySelector("svg").innerHTML = S.paused
     ? '<path d="M7.5 4.8l11 7.2-11 7.2z"/>'
     : '<rect x="6.5" y="5" width="4.2" height="14" rx="1.6"/><rect x="13.3" y="5" width="4.2" height="14" rx="1.6"/>';
 }
+function openPause(){
+  if(S.phase!=="work"||pauseMenu) return;
+  S.paused=true; pauseMenu=true; syncPauseBtn(); closeSheets();
+  const acc=S.today.docs?Math.round(S.today.ok/S.today.docs*100):100;
+  openModal(`
+    <div class="modal-head">
+      <div class="modal-kicker">PAUSED · DAY ${S.day}</div>
+      <h2 class="modal-title">잠시 멈춤</h2>
+      <div class="modal-sub">${room().name} · ${rankName()}</div>
+    </div>
+    <div class="modal-body">
+      <div class="stat-grid" style="margin-bottom:16px">
+        <div class="stat"><dt>자금</dt><dd style="font-size:16px">${won(S.money)}</dd></div>
+        <div class="stat"><dt>신뢰도</dt><dd>${Math.round(S.rep)}</dd></div>
+        <div class="stat"><dt>오늘 정확도</dt><dd>${acc}%</dd></div>
+      </div>
+      <button class="btn" id="mBtn">계속하기</button>
+      <div class="btn-row">
+        <button class="btn ghost" id="pmRules">규정집 보기</button>
+        <button class="btn ghost" id="pmExit">타이틀로 나가기</button>
+      </div>
+      <p style="font-size:11.5px;color:var(--ink-2);text-align:center;margin:12px 0 10px;line-height:1.5">
+        나가도 회사는 저장됩니다. 다만 <b>오늘 하루는 처음부터</b> 다시 시작합니다.</p>
+      <button class="btn ghost" id="pmReset"
+        style="color:var(--stamp-2);border-color:var(--stamp);font-size:13px">처음부터 다시 시작</button>
+    </div>`);
+  document.getElementById("mBtn").onclick=closePause;
+  document.getElementById("pmRules").onclick=()=>{ closePause(); openSheet("sheetRules"); };
+  document.getElementById("pmExit").onclick=exitToTitle;
+  document.getElementById("pmReset").onclick=()=>{
+    if(confirm("지금까지의 회사 기록이 모두 사라집니다. 정말 처음부터 시작할까요?")){
+      pauseMenu=false; closeModal(); hardReset();
+    }
+  };
+}
+function closePause(){
+  pauseMenu=false; closeModal(); S.paused=false; syncPauseBtn();
+}
+function exitToTitle(){
+  save();
+  pauseMenu=false; S.paused=false; S.phase="intro";
+  S.inbox=[]; S.cur=null; FX=[]; BUBBLES=[];
+  MUS.stop(); syncPauseBtn();
+  S.emps.forEach(e=>{ e.mode="work"; e.carry=null; e.path=[];
+    const h=homeOf(e); e.x=h.x; e.y=h.y; });
+  closeSheets(); renderPaper(); renderTrayUI(); update();
+  intro(false);
+}
+function togglePause(){ pauseMenu ? closePause() : openPause(); }
 document.getElementById("pauseBtn").onclick=togglePause;
 const sndPop=document.getElementById("sndPop"), sndBtn=document.getElementById("soundBtn");
 function paintSnd(){
