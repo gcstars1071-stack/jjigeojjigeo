@@ -332,6 +332,8 @@ svg{display:block}
   display:flex;align-items:center;gap:5px;margin-top:3px}
 .item-cost.no{color:var(--ink-3);text-decoration:line-through}
 .item-note{font-size:11px;color:var(--stamp-2);font-weight:700;margin-top:3px}
+.item-hint{font-size:10.5px;color:var(--ink-3);margin-top:3px;line-height:1.35}
+.item-hint.warn{color:var(--gold-2);font-weight:700}
 .item.maxed .item-cost{color:var(--mint-2);text-decoration:none}
 
 /* 실적 */
@@ -889,6 +891,17 @@ const ROOM = [
   {name:"한 층 전체", cols:3, rows:3, cap:9,  cost:42000},
   {name:"우리 사옥",   cols:4, rows:3, cap:12, cost:120000},
 ];
+/* 직원 교육 — 자체 처리 비율 / 자체 처리 수수료율 / 1인 급여 */
+const PRE_RATE = [0, 0.22, 0.38, 0.55, 0.70];
+const PRE_FEE  = [0, 0.26, 0.31, 0.36, 0.40];
+const TRAIN_DESC = [
+  "교육 없음 — 모든 서류가 내 결재함으로 올라옵니다",
+  "기초 교육 — 서류의 22%를 직원이 자리에서 처리 (수수료 26%)",
+  "실무 교육 — 38%를 자체 처리 (수수료 31%)",
+  "심화 교육 — 55%를 자체 처리 (수수료 36%)",
+  "사내 검토관 — 70%를 자체 처리 (수수료 40%)",
+];
+const baseSalary = ()=>1200 + (S.trainLv-1)*260;
 const COMPUTER = [
   "기본 사무용 PC — 보조 기능 없음",
   "듀얼 모니터 — 수상한 항목에 확인 표시 (일부)",
@@ -913,6 +926,8 @@ const SHOP = [
    cost:l=>[3000,7200,16500][l-1]},
   {id:"interior",ico:"🪴",name:"사무실 인테리어",max:4, desc:l=>`분위기 상승 — 마감 시 신뢰도 +${l*2}`,
    cost:l=>[1800,4600,10500][l-1]},
+  {id:"train",   ico:"🎓",name:"직원 교육",      max:5, desc:l=>TRAIN_DESC[l],
+   cost:l=>[3000,7000,15000,32000][l-1], note:()=>`급여 1인 ${won(baseSalary())} → ${won(1200+S.trainLv*260)}`},
 ];
 const RANK_TIERS = [
   {min:0,name:"구멍가게 사무실"},{min:6,name:"작지만 단단한 사무소"},{min:11,name:"성장 중인 스타트업"},
@@ -928,11 +943,11 @@ const BASE_DATE = new Date(2026,2,2);
 let S = null;
 function newState(){
   return {
-    money:3000, rep:70, day:1, clock:0, phase:"intro",
-    desks:3, officeLv:1, computerLv:1, chairLv:1, trayLv:1, coffeeLv:1, interiorLv:1,
+    money:5000, rep:70, day:1, clock:0, phase:"intro",
+    desks:3, officeLv:1, computerLv:1, chairLv:1, trayLv:1, coffeeLv:1, interiorLv:1, trainLv:1,
     emps:[mkEmp(0)], inbox:[], cur:null,
     docSeq:1, usedNos:[], pickedReason:null,
-    today:{ok:0,miss:0,income:0,docs:0}, hist:[],
+    today:{ok:0,miss:0,income:0,docs:0,self:0,selfPay:0}, hist:[], spd:0,
     totals:{ok:0,miss:0,income:0,docs:0},
     sound:true, paused:false,
   };
@@ -942,7 +957,7 @@ function mkEmp(i){
     id:"e"+Math.random().toString(36).slice(2,8),
     name:NAMES[i%NAMES.length], hair:HAIR[i%HAIR.length], shirt:SHIRT[i%SHIRT.length],
     skin:SKIN[i%SKIN.length], style:i%4, blink:Math.random()*5,
-    slot:i, timer:5+Math.random()*4, mode:"work",
+    slot:i, timer:5+Math.random()*4, mode:"work", waitT:0,
     x:null, y:null, path:[], carry:null, phase:Math.random()*6, face:1,
   };
 }
@@ -955,7 +970,7 @@ const DOW = ["일","월","화","수","목","금","토"];
 const fmtDow = t=>DOW[t.getDay()];
 const won = n=>"₩"+Math.round(n).toLocaleString("ko-KR");
 function rankName(){
-  const sc=S.officeLv*3+S.emps.length+S.computerLv; let r=RANK_TIERS[0].name;
+  const sc=S.officeLv*3+S.emps.length+S.computerLv+(S.trainLv-1); let r=RANK_TIERS[0].name;
   for(const t of RANK_TIERS) if(sc>=t.min) r=t.name;
   return r;
 }
@@ -1765,6 +1780,7 @@ function step(dt){
   if(S._as>5){ S._as=0; save(); }
   const prod=1+0.18*(S.coffeeLv-1), tp=trayPos(), g=geo();
 
+  const queue=S.emps.filter(e=>e.mode==="wait").sort((a,b)=>a.waitT-b.waitT);
   S.emps.forEach(e=>{
     const home=homeOf(e);
     if(e.x==null){ e.x=home.x; e.y=home.y; }
@@ -1772,33 +1788,61 @@ function step(dt){
       e.timer-=dt*prod;
       if(Math.random()<dt*1.9) SFX.type(panAt(e.x,e.y));
       if(e.timer<=0){
-        e.mode="walk"; e.carry=makeDoc();
+        const doc=makeDoc();
+        if(Math.random()<PRE_RATE[S.trainLv-1]){
+          // 자체 처리 — 자리에서 끝내고 수수료의 일부만 받는다
+          const amt=Math.round(doc.reward*PRE_FEE[S.trainLv-1]/10)*10;
+          S.money+=amt; S.today.income+=amt; S.today.self++; S.today.selfPay+=amt;
+          e.timer=11+Math.random()*5;
+          burst(e.x,e.y-0.35,"#7FD9B8",4);
+          FX.push({t:"coin",x:e.x,y:e.y-0.4,vx:(Math.random()-.5)*.5,vy:-1.4,life:0,max:.8,r:2.6});
+          SFX.selfDone(panAt(e.x,e.y));
+          if(Math.random()<0.1) say(e,pick(["제가 처리했어요!","이건 제 선에서~","자체 검토 완료!"]));
+          update();
+        } else {
+          e.mode="walk"; e.carry=doc;
+          const ay=aisleY(home.row);
+          e.path=[{x:home.x,y:ay},{x:g.trunkX,y:ay},
+                  {x:g.trunkX,y:g.dropY},{x:g.dropX,y:g.dropY}];
+          if(Math.random()<0.3) say(e,pick(["결재 부탁드려요!","다 됐습니다~","확인 좀!","서류 나왔어요","검토 부탁해요"]));
+        }
+      }
+    } else if(e.mode==="wait"){
+      const qi=queue.indexOf(e);
+      const tx = qi<=0 ? g.dropX : g.trunkX;
+      const ty = qi<=0 ? g.dropY : g.dropY - 0.85*qi;
+      e.path=[{x:tx,y:ty}];
+      const there=follow(e,dt,2.3);
+      if(qi<=0 && there && S.inbox.length<trayCap()){
+        S.inbox.push(e.carry); renderTrayUI();
+        burst(tp.x,tp.y,"#F0D48A",5);
+        if(!S.cur) loadNext();
+        SFX.drop(panAt(tp.x,tp.y)); saveSoon();
+        e.carry=null; e.mode="return";
         const ay=aisleY(home.row);
-        e.path=[{x:home.x,y:ay},{x:g.trunkX,y:ay},
-                {x:g.trunkX,y:g.dropY},{x:g.dropX,y:g.dropY}];
-        if(Math.random()<0.3) say(e,pick(["결재 부탁드려요!","다 됐습니다~","확인 좀!","서류 나왔어요","검토 부탁해요"]));
+        e.path=[{x:g.trunkX,y:g.dropY},{x:g.trunkX,y:ay},
+                {x:home.x,y:ay},{x:home.x,y:home.y}];
+      } else if(qi<=0 && there && Math.random()<dt*0.25){
+        say(e,pick(["아직 자리가…","기다릴게요~","저 여기 있어요"]));
       }
     } else if(e.mode==="walk"){
       e.sndT=(e.sndT||0)-dt;
       if(e.sndT<=0){ e.sndT=0.33; SFX.step(panAt(e.x,e.y)); }
       if(follow(e,dt,2.3)){
         if(S.inbox.length>=trayCap()){
-          if(!S._ovT||T-S._ovT>4.5){ S._ovT=T;
-            toast("결재함이 꽉 찼어요! 서류가 반송됩니다","bad"); SFX.alert(); }
-          S.rep=Math.max(0,S.rep-3); say(e,"자리가 없네요…");
-          burst(tp.x,tp.y,"#E2603F",7);
-          if(S.rep<=0){ update(); return gameOver("신뢰도 0 — 거래처 신뢰를 모두 잃었습니다"); }
-          update();
+          e.mode="wait"; e.waitT=T;
+          if(!S._ovT||T-S._ovT>6){ S._ovT=T;
+            toast("결재함이 가득 찼어요 — 직원이 줄을 섭니다","info"); }
         } else {
           S.inbox.push(e.carry); renderTrayUI();
           burst(tp.x,tp.y,"#F0D48A",5);
           if(!S.cur) loadNext();
           SFX.drop(panAt(tp.x,tp.y)); saveSoon();
+          e.carry=null; e.mode="return";
+          const ay=aisleY(home.row);
+          e.path=[{x:g.trunkX,y:g.dropY},{x:g.trunkX,y:ay},
+                  {x:home.x,y:ay},{x:home.x,y:home.y}];
         }
-        e.carry=null; e.mode="return";
-        const ay=aisleY(home.row);
-        e.path=[{x:g.trunkX,y:g.dropY},{x:g.trunkX,y:ay},
-                {x:home.x,y:ay},{x:home.x,y:home.y}];
       }
     } else if(e.mode==="return"){
       e.sndT=(e.sndT||0)-dt;
@@ -1833,7 +1877,7 @@ const btnA=document.getElementById("btnApprove");
 const btnR=document.getElementById("btnReject");
 
 function loadNext(){
-  S.cur=S.inbox.shift()||null; S.pickedReason=null;
+  S.cur=S.inbox.shift()||null; S.pickedReason=null; S.curAt=performance.now();
   renderTrayUI(); renderReasons(); renderPaper();
 }
 function renderPaper(){
@@ -1882,6 +1926,8 @@ function decide(approve){
   const tp=trayPos(), md=myDeskPos();
   let delta,msg,cls;
   SFX.stamp(approve);
+  if(S.curAt){ const el=Math.min(40,(performance.now()-S.curAt)/1000);
+    S.spd = S.spd ? S.spd*0.82+el*0.18 : el; }
 
   if(right){
     let amt=d.reward, bonus=false;
@@ -1894,8 +1940,8 @@ function decide(approve){
       vx:(Math.random()-.5)*1.1, vy:-1.9-Math.random()*1.1, life:0,max:.9, r:3.2});
     burst(md.x,md.y-0.3,"#F3C85E",6);
   } else {
-    const fine=Math.round(d.reward*1.5/10)*10;
-    delta=-fine; S.money-=fine; S.rep=Math.max(0,S.rep-6);
+    const fine=Math.round(d.reward*1.3/10)*10;
+    delta=-fine; S.money-=fine; S.rep=Math.max(0,S.rep-5);
     S.today.miss++; S.today.income-=fine;
     msg=approve?`오결재! ${d.viol.map(r=>RULES[r].name).join(", ")} 위반`:"정상 서류를 반려했습니다";
     cls="bad"; SFX.fail();
@@ -1937,7 +1983,7 @@ btnR.addEventListener("click",()=>decide(false));
 const RENT=[0,900,2200,4500];
 function endDay(){
   S.phase="settle"; SFX.dayEnd();
-  const salary=S.emps.length*1200, rent=RENT[S.officeLv-1];
+  const salary=S.emps.length*baseSalary(), rent=RENT[S.officeLv-1];
   const upkeep=Math.round((S.computerLv-1)*120+(S.coffeeLv-1)*180);
   const total=salary+rent+upkeep;
   S.money-=total;
@@ -1979,9 +2025,11 @@ function endDay(){
       <div class="grade"><div class="grade-badge ${gc}">${g}</div>
         <div class="grade-txt"><b>정확도 ${acc}%</b><span>${gm}</span></div></div>
       <div class="ledger">
-        <div class="led"><span class="led-k">결재 수수료 <small>정확 ${S.today.ok}건 / 오결재 ${S.today.miss}건</small></span>
-          <span class="led-v ${S.today.income>=0?"pos":"neg"}">${S.today.income>=0?"+":"-"}${won(Math.abs(S.today.income))}</span></div>
-        <div class="led"><span class="led-k">직원 급여 <small>${S.emps.length}명 × ₩1,200</small></span>
+        <div class="led"><span class="led-k">내 결재 수수료 <small>정확 ${S.today.ok}건 / 오결재 ${S.today.miss}건</small></span>
+          <span class="led-v ${(S.today.income-S.today.selfPay)>=0?"pos":"neg"}">${(S.today.income-S.today.selfPay)>=0?"+":"-"}${won(Math.abs(S.today.income-S.today.selfPay))}</span></div>
+        ${S.today.self?`<div class="led"><span class="led-k">직원 자체 처리 <small>${S.today.self}건 · 교육 Lv.${S.trainLv}</small></span>
+          <span class="led-v pos">+${won(S.today.selfPay)}</span></div>`:""}
+        <div class="led"><span class="led-k">직원 급여 <small>${S.emps.length}명 × ${won(baseSalary())}${S.trainLv>1?" (교육 수당 포함)":""}</small></span>
           <span class="led-v neg">-${won(salary)}</span></div>
         <div class="led"><span class="led-k">사무실 임대료 <small>${room().name}</small></span>
           <span class="led-v neg">-${won(rent)}</span></div>
@@ -2007,7 +2055,7 @@ function endDay(){
 }
 function startDay(d){
   S.day=d; S.clock=0; S.phase="work";
-  S.today={ok:0,miss:0,income:0,docs:0}; S.usedNos=[];
+  S.today={ok:0,miss:0,income:0,docs:0,self:0,selfPay:0}; S.usedNos=[];
   S.inbox=[]; S.cur=null; FX=[]; BUBBLES=[];
   S.emps.forEach(e=>{ e.mode="work"; e.timer=3+Math.random()*6; e.carry=null; e.path=[];
     const h=homeOf(e); e.x=h.x; e.y=h.y; });
@@ -2044,10 +2092,20 @@ function gameOver(why){
    8. 상점 · 규정집 · 실적
    ═══════════════════════════════════════════════════════ */
 const lvOf = id=>({desk:S.desks,hire:S.emps.length,office:S.officeLv,computer:S.computerLv,
-                   chair:S.chairLv,tray:S.trayLv,coffee:S.coffeeLv,interior:S.interiorLv}[id]);
+                   chair:S.chairLv,tray:S.trayLv,coffee:S.coffeeLv,interior:S.interiorLv,train:S.trainLv}[id]);
 const COIN_SVG=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
   stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/>
   <path d="M12 7.5v9M9.6 9.8h3.6a1.9 1.9 0 0 1 0 3.8h-3M9.6 13.6h3.9"/></svg>`;
+/* 내 결재 속도로 감당 가능한 직원 수 */
+function capacityInfo(){
+  const per=(S.spd||7)+0.92;                       // 실제 측정된 1건 처리 시간
+  const myCap=DAY_LEN/per;
+  const pre=PRE_RATE[S.trainLv-1];
+  const g=geo(), trip=(Math.abs(g.dropY-g.y0)+Math.abs(g.trunkX-g.x0)+1)*2/2.3;
+  const cyc=13.5/(1+0.18*(S.coffeeLv-1))+trip*(1-pre);
+  const perEmp=DAY_LEN/cyc*(1-pre);                // 직원 1명이 내게 보내는 일일 건수
+  return {myCap, perEmp, max:Math.max(1,Math.floor(myCap/Math.max(.2,perEmp)))};
+}
 function renderShop(){
   document.getElementById("shopMoney").textContent=won(S.money);
   document.getElementById("shopGrid").innerHTML=SHOP.map(it=>{
@@ -2060,6 +2118,11 @@ function renderShop(){
       <span class="item-main">
         <span class="item-top"><span class="item-name">${it.name}</span><span class="item-lv">${lvTxt}</span></span>
         <span class="item-desc">${maxed?"최대까지 올렸습니다":it.desc(lv)}</span>
+        ${it.id==="hire"?(()=>{const c=capacityInfo();
+          const over=S.emps.length>=c.max;
+          return `<span class="item-hint${over?" warn":""}">내 결재 속도로 감당 가능: 약 ${c.max}명 (현재 ${S.emps.length}명)${
+            over?" — 더 뽑으면 직원이 줄을 섭니다":""}</span>`;})():""}
+        ${(!maxed&&it.note)?`<span class="item-hint">${it.note()}</span>`:""}
         ${maxed?`<span class="item-cost">MAX</span>`
           :blocked?`<span class="item-note">${req}</span>`
           :`<span class="item-cost${afford?"":" no"}">${COIN_SVG}${won(cost)}</span>`}
@@ -2091,6 +2154,9 @@ function buy(id){
   else if(id==="tray"){ S.trayLv++; renderTrayUI(); }
   else if(id==="coffee") S.coffeeLv++;
   else if(id==="interior") S.interiorLv++;
+  else if(id==="train"){ S.trainLv++;
+    toast(`직원 교육 Lv.${S.trainLv} — ${TRAIN_DESC[S.trainLv-1]}`,"good");
+    S.emps.forEach(e=>burst(e.x,e.y-0.35,"#7FD9B8",6)); }
   const md=myDeskPos(); burst(md.x,md.y,"#8FE3C8",8);
   SFX.buy();
   renderShop(); update(); save();
@@ -2152,7 +2218,9 @@ function renderStats(){
       <div class="stat"><dt>등급</dt><dd style="font-family:'Jua';font-size:15px">${rankName()}</dd></div>
       <div class="stat"><dt>사무실</dt><dd style="font-family:'Jua';font-size:15px">${room().name}</dd></div>
       <div class="stat"><dt>직원 / 책상</dt><dd>${S.emps.length} / ${S.desks}</dd></div>
-      <div class="stat"><dt>일일 고정비</dt><dd style="font-size:16px">${won(S.emps.length*1200+RENT[S.officeLv-1])}</dd></div>
+      <div class="stat"><dt>일일 고정비</dt><dd style="font-size:16px">${won(S.emps.length*baseSalary()+RENT[S.officeLv-1])}</dd></div>
+      <div class="stat"><dt>직원 교육</dt><dd style="font-family:'Jua';font-size:15px">Lv.${S.trainLv}</dd></div>
+      <div class="stat"><dt>오늘 자체 처리</dt><dd>${S.today.self}</dd></div>
     </div>
     <div style="margin-top:17px"><button class="btn ghost" id="resetBtn">저장 지우고 새로 시작</button></div>`;
   document.getElementById("resetBtn").onclick=()=>{
@@ -2544,6 +2612,10 @@ const SFX = {
   type(pan){
     noise({f:2400+Math.random()*1400,type:"bandpass",q:2.2,dur:.022,vol:.035,a:.001,pan});
   },
+  selfDone(pan){
+    tone({f:987.77,type:"triangle",dur:.09,vol:.07,pan});
+    tone({f:1318.5,type:"sine",dur:.14,vol:.05,delay:.07,pan,verb:.2});
+  },
   tick(){ noise({f:2100,type:"bandpass",q:3,dur:.03,vol:.07,a:.001});
           tone({f:1500,type:"square",dur:.02,vol:.03}); },
 };
@@ -2625,7 +2697,7 @@ function saveSnd(){
 }
 
 /* 저장 */
-const SAVE_KEY="gyeoljae-save-3";
+const SAVE_KEY="gyeoljae-save-4";
 const hhmm=c=>{ const m=9*60+(c/DAY_LEN)*9*60;
   return `${String(Math.floor(m/60)).padStart(2,"0")}:${String(Math.floor(m%60)).padStart(2,"0")}`; };
 function save(){
@@ -2633,7 +2705,7 @@ function save(){
   try{ localStorage.setItem(SAVE_KEY,JSON.stringify({
     v:3,
     money:S.money,rep:S.rep,day:S.day,desks:S.desks,officeLv:S.officeLv,computerLv:S.computerLv,
-    chairLv:S.chairLv,trayLv:S.trayLv,coffeeLv:S.coffeeLv,interiorLv:S.interiorLv,
+    chairLv:S.chairLv,trayLv:S.trayLv,coffeeLv:S.coffeeLv,interiorLv:S.interiorLv,trainLv:S.trainLv,
     emps:S.emps.map(e=>({name:e.name,hair:e.hair,shirt:e.shirt,skin:e.skin,style:e.style,
       slot:e.slot,timer:e.timer,mode:e.mode,x:e.x,y:e.y,carry:e.carry,path:e.path})),
     totals:S.totals,hist:S.hist,docSeq:S.docSeq,
@@ -2651,13 +2723,14 @@ function applySave(d){
   S=newState();
   Object.assign(S,{money:d.money,rep:d.rep,day:d.day,desks:d.desks,officeLv:d.officeLv,
     computerLv:d.computerLv,chairLv:d.chairLv,trayLv:d.trayLv,coffeeLv:d.coffeeLv,
-    interiorLv:d.interiorLv,totals:d.totals||S.totals,hist:d.hist||[],docSeq:d.docSeq||1});
+    interiorLv:d.interiorLv,trainLv:d.trainLv||1,totals:d.totals||S.totals,hist:d.hist||[],docSeq:d.docSeq||1});
   S.emps=(d.emps||[]).map((e,i)=>Object.assign(mkEmp(i),e));
   if(!S.emps.length) S.emps=[mkEmp(0)];
   S.mid=!!d.mid;
   if(S.mid){
     S.clock=d.clock||0; S.inbox=d.inbox||[]; S.cur=d.cur||null;
-    S.today=d.today||S.today; S.usedNos=d.usedNos||[]; S.pickedReason=d.picked||null;
+    S.today=Object.assign({self:0,selfPay:0},d.today||S.today);
+    S.usedNos=d.usedNos||[]; S.pickedReason=d.picked||null;
   } else {
     S.emps.forEach(e=>{ e.mode="work"; e.carry=null; e.path=[]; e.x=null; });
   }
@@ -2706,6 +2779,11 @@ function intro(fresh){
           <span class="howto-t">번 돈으로 회사를 키웁니다</span>
           <span class="howto-d">책상을 사고 직원을 뽑고, 컴퓨터·의자·사무실을 업그레이드하세요.
           컴퓨터가 좋아지면 수상한 항목을 대신 찾아줍니다.</span></span></div>
+        <div class="howto-row"><span class="howto-n">4</span><span>
+          <span class="howto-t">직원을 교육하면 스스로 검토합니다</span>
+          <span class="howto-d">교육받은 직원은 쉬운 서류를 <b>자리에서 직접 처리</b>합니다.
+          수수료는 적지만 내 결재함이 비니 사람을 더 뽑을 수 있습니다.
+          결재함이 차면 직원은 줄을 서서 기다립니다 — 급여만 나가는 셈이죠.</span></span></div>
         <div class="howto-row"><span class="howto-n warn">!</span><span>
           <span class="howto-t">오결재는 치명적입니다</span>
           <span class="howto-d">틀리면 수수료의 1.5배를 물고 신뢰도가 6 떨어집니다. 신뢰도가 0이 되면 폐업.</span></span></div>
